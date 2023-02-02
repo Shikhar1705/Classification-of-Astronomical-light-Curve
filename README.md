@@ -4,22 +4,6 @@ The time-series data in this repo are of individual sources detected in the nigh
 View the [introduction slide-deck here](https://github.com/thespacedoctor/astro-analytathon/blob/master/slide-deck.pdf). 
 
 
-## Data Format
-
-There are 645 objects in this set and their data are recorded in individual plain-text files in the `/data` folder of the repo.
-
-Each file is named as so:
-
-```plain
-<uuid>_xxxx_diff.txt
-```
-
-for example:
-
-```plain
-1090332400212000800_2762_diff.txt
-```
-
 The unique identifier (`uuid`) is all you need to be concerned with, and it is with this `uuid` you can find the distance to the object in the `object_distances.txt` file (more below).
 
 Within the `/data` folder of this repo, are the 645 space-separated, plain-text files containing the time-series data; one file per object. Each row in the file represents a set of properties of the object as measured from a single telescope image.
