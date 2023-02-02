@@ -31,6 +31,21 @@ mag5sig
 Sky
 Obs
 ```
+## Data Format
+
+There are 645 objects in this set and their data are recorded in individual plain-text files in the `/data` folder of the repo.
+
+Each file is named as so:
+
+```plain
+<uuid>_xxxx_diff.txt
+```
+
+for example:
+
+```plain
+1090332400212000800_2762_diff.txt
+```
 
 Not all columns are useful for time-series analysis; but here are the definitions for those that definitely are:
 
