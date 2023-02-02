@@ -3,12 +3,6 @@ The time-series data in this repo are of individual sources detected in the nigh
 
 View the [introduction slide-deck here](https://github.com/thespacedoctor/astro-analytathon/blob/master/slide-deck.pdf). 
 
-## Downloading the Data
-
-If you're familiar with Git and Github you can clone this repository to your local machine, otherwise click the green 'Code' button above and select 'Download Zip'.
-
-[![](https://live.staticflickr.com/65535/51326396044_d8abeff58d_z.jpg)](https://live.staticflickr.com/65535/51326396044_d8abeff58d_b.jpg)
-
 
 ## Data Format
 
