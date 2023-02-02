@@ -66,6 +66,8 @@ In the root of the repo you will also find a file call `object_distances.csv`. T
 - for much of these time-series data the object will display no activity, with flux hovering around zero. It's best to focus on the period(s) of time where the object brightens above this base-line, near-zero flux level.
 - you may want to differentiate data taken in each of the 2 filters. 
 
+## Different Models performing:
+
 ![image](https://user-images.githubusercontent.com/90794121/216454098-f8fca386-34c1-4e26-89a7-91153c59bb6c.png)
 ![image](https://user-images.githubusercontent.com/90794121/216454204-55fb3609-f199-4458-8bc7-bc927f8e789a.png)
 ![image](https://user-images.githubusercontent.com/90794121/216454302-76bc829f-fb72-424d-9640-34a8738aeae2.png)
