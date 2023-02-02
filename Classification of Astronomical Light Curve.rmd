@@ -1,0 +1,490 @@
+---
+title: "Analytathon2"
+author: "Shikhar"
+date: "26/07/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+# Introduction
+
+Classification of Astronomical Lightcurve, using classifications model on the lightcurce data provided to us we needed to cluster the objects based on their shape and flux, which can be converted into Luminosity using distance excel provided.
+
+Below are the useful variables in dataset:
+
+1. "###MJD" : MOdified Julian Date, Astronomically preferred datetime format
+
+2. uJy: Flux(brightness), measured from single light source
+
+3. duJy: Error for measured flux
+
+4. F: Color filter during observation, Orange and Cyan
+
+5. chi/n: A possible indicator of quality of flux measurement(not related to UJy, the lower the better)
+
+Data was collected from ATLAS telescope in HAWAII, Supernova and Exploding stars flashes data was recorded, to understand them.
+
+
+```{r include=FALSE}
+library(tidyverse)
+library(skimr)
+library(FactoMineR)
+library(factoextra)
+library(mlbench)
+library(caret)
+library(caretEnsemble)
+library(RANN)
+library(rpart)
+library(ranger)
+library(e1071)
+library(arules)
+library(arulesViz)
+library(mice)
+library(NbClust)
+library(dplyr) 
+library(tidyverse)
+library(fpc)
+library(cluster)
+library(class)
+```
+
+
+
+
+Dataframe needed to be created after reading 645 text files which has data of exploding stars of over 5 years:
+
+# Difficulty with the data:
+
+Outliers: There were some outliers in the which were acting like exploding stars, but were actually lights from different lights sources,like satellites and moon.
+
+Unwanted Variables: There were many variables apart from MJD, uJy, duJy, F, chi/n which were not required in the dataframe.
+
+Missing values: Around 75 missing values in uJy variable.
+
+Negative flux: The flux value for some fields was below zero, which is not possible so we needed to shift them upward.
+
+Unscaled data: The data was unscaled.
+
+```{r include=FALSE}
+set.seed(123)
+knitr::opts_chunk$set(echo = FALSE)
+
+datapath = "S:/Analytathon/Analytathon2/astro-analytathon-master/data"
+temp = list.files(path = datapath,pattern="*txt")
+
+name_list = c()
+for (i in 1:645){
+  name<-paste("X",substr(temp[i],1,nchar(temp[i])-4),sep="")
+  name_list = cbind(name_list,name)
+  tmp = cbind("S:/Analytathon/Analytathon2/astro-analytathon-master/data/",temp[i])
+  assign(name, read_table2(str_c(tmp,collapse = "")))
+}
+```
+# Exploratory Data Analytics:
+
+Solution to the problem of raw data:
+
+1. After analyzing we took the quartile range of 0.5 to 0.95 and values above 0.95 were removed as outliers.
+
+2. All unwanted variables were removed while making the dataframe.
+
+3. All the missing values were removed.
+
+4. Negative flux: The negative flux was converted to positive by taking the minimum value of each file and adding it's mod value to all the values in flux variable.
+
+5. A new coulmn Luminosity was added using formula:
+
+L = 4*pi*r^2*f
+
+r -> distance
+f -> flux
+
+Joined distance sheet and dataframe using uuid
+
+6. Removed "t" filter from the data as it was not required.
+
+```{r include=FALSE}
+set.seed(123)
+knitr::opts_chunk$set(echo = FALSE)
+clean_df = function(df_input){
+  # brings in the desired data frame
+  df = df_input
+  # assigns easier names to two columns
+  names(df)[6] <- "f"
+  names(df)[1] <- "MJD"
+  
+  # removes NA values
+  df = df[complete.cases(df),]
+  
+  # removing cyan and 't', selecting rows we want
+  df = df %>%
+    select(MJD, uJy, duJy, f, "chi/N")%>%
+    filter(f == "c" | f == "o")
+  
+  outliers <- boxplot(df$uJy, plot = FALSE)$out
+  # Removing Outliers
+  df <- df[-which(df$uJy %in% outliers),]
+  newdata = df
+  # returns the df
+  assign(paste(name_list[i]),df)
+  
+  df %>% mutate(uJy = uJy + abs(min(uJy)))
+}
+
+# loop to call function and clean data
+for (i in 1:645){
+  df = clean_df(eval(parse(text =name_list[i])))
+  # assigns df to the original            
+  assign(paste(name_list[i]),df)
+}
+
+
+```
+
+
+```{r include=FALSE}
+set.seed(123)
+new_data = c()
+for (i in 1:645){
+  new_col_df = as.data.frame(eval(parse(text =name_list[i]))) %>%
+    mutate(Source.Name = name_list[i])
+  new_data = rbind(new_data,new_col_df)
+  
+}
+
+```
+
+
+
+```{r include=FALSE}
+set.seed(123)
+new_data <- new_data %>% mutate(uuid = substr(Source.Name,2,20))%>%
+  select(-Source.Name)
+
+```
+
+
+
+```{r include=FALSE}
+set.seed(123)
+distance = data.table::fread(file = "S:/Analytathon/Analytathon2/astro-analytathon-master/object_distances.csv",colClasses = "Character"
+)
+
+merge_data <- merge(new_data, distance, by ="uuid")
+merge_data
+
+```
+
+Below is the graph for **MJD** against **uJy** and **duJy** to see the trend of data after cleaning process.
+
+We can see that after preprocessing of data, there are no outliers, flux is not going below 0, Unwanted variables are removed.
+
+```{r echo=FALSE, fig.cap = "Bar chart to show votes and Cluster plot", warning=FALSE, message=FALSE, fig.width=7}
+set.seed(123)
+ggplot(new_data, aes(x = MJD, y = uJy)) + geom_point()
+ggplot(new_data, aes(x = MJD, y = duJy)) + geom_point()
+
+```
+
+
+```{r include=FALSE}
+set.seed(123)
+#normalizing using distance
+merge_data$distance_mpc <- as.numeric(merge_data$distance_mpc)
+merge_data <- merge_data %>%
+  mutate(l = 4*3.14*uJy*10^-29*(distance_mpc*distance_mpc*3.086*3.086*10^44))
+
+merge_data_orange <- merge_data %>%
+  filter(f == "o")
+
+
+
+```
+
+Below is the graph of Change in Luminosity across time.
+
+```{r echo=FALSE, fig.cap = "Luminosity v/s MJD", warning=FALSE, message=FALSE, fig.width=5, fig.height=3}
+ggplot(merge_data, aes(MJD, l))+geom_point()
+```
+
+We can see some high points and also maximum of the data is contained near to 0, which shows scales data.
+
+```{r include=FALSE}
+set.seed(123)
+#clustering
+merge_data_orange <-merge_data_orange %>%
+   select(-MJD, -uuid, -f)
+
+merge_data_orange$uJy <- as.numeric(merge_data_orange$uJy)
+merge_data_orange$duJy <- as.numeric(merge_data_orange$duJy)
+merge_data_orange$l <- as.numeric(merge_data_orange$l)
+# # merge_data_orange$chi/n <- as.numeric(merge_data_orange$chi/n)
+merge_data_orange$distance_mpc <- as.numeric(merge_data_orange$distance_mpc)
+
+set.seed(123)
+res <- kmeans(scale(merge_data_orange), 4, nstart = 25)
+# K-means clusters showing the group of each individuals
+res$cluster
+```
+
+
+```{r include=FALSE}
+fviz_cluster(res, data = merge_data_orange,
+             palette = c("#2E9FDF", "#00AFBB", "#E7B800", "#fc3312"), 
+             geom = "point",
+             ellipse.type = "convex", 
+             ggtheme = theme_bw()
+             )
+```
+
+
+```{r include=FALSE}
+set.seed(123)
+# Before performing clustering we need to make sure that 
+# all the variables are on the same scale
+# Perform data normalisation (centering and scaling)
+merge_data_orange_scale <-scale(merge_data_orange) 
+
+head(merge_data_orange_scale)
+memory.limit(size=40000)
+
+# function to compute total within-cluster sum of square 
+wss <- function(k) {
+  kmeans(merge_data_orange_scale, k, nstart = 15 )$tot.withinss
+}
+
+# Compute and plot wss for k = 1 to k = 15
+k.values <- 1:15
+
+# extract wss for 2-15 clusters
+wss_values <- map_dbl(k.values, wss)
+
+```
+
+
+```{r include=FALSE}
+plot(k.values, wss_values,
+       type="b", pch = 19, frame = FALSE, 
+       xlab="Number of clusters K",
+       ylab="Total within-clusters sum of squares")
+```
+
+
+```{r include=FALSE}
+set.seed(123)
+km4 = kmeans(merge_data_orange_scale,4)
+plotcluster(merge_data_orange_scale, km4$cluster)
+fviz_cluster(km4, data = merge_data_orange_scale,
+             geom = "point",
+             ellipse.type = "convex", 
+             ggtheme = theme_bw()
+             )
+
+```
+# Kmeans Clustering Strategy: 
+k-means clustering tries to group similar kinds of items in form of clusters. It finds the similarity between the items and groups them into the clusters. K-means clustering algorithm works in three steps. Let’s see what are these three steps.
+
+1. Select the k values.
+2. Initialize the centroids.
+3. Select the group and find the average.
+
+Applying Kmeans using Euclidean distance and NbClust method, giving minimum cluster argument as 2 and maximum as 10 so that algorithm can choose optimum number of clusters between 2 and 10.
+
+```{r include=FALSE}
+set.seed(123)
+#Applying NbClust
+merge_data_orange_sum <- merge_data %>%
+  group_by(uuid)%>%
+  filter(f=="o")%>%
+  summarize(median_uJy = median(uJy),
+            length = median(l))
+
+merge_data_orange_sum$uuid <- as.numeric(merge_data_orange_sum$uuid)
+
+merge_data_orange_sum <-scale(merge_data_orange_sum) 
+res_kmeans_automatic <- merge_data_orange_sum %>% 
+  NbClust(distance = "euclidean",
+          min.nc = 2, max.nc = 10, 
+          method = "kmeans", index ="all") 
+
+
+
+library(fpc) 
+km1 = kmeans(merge_data_orange_sum,3)
+plotcluster(merge_data_orange_sum, km1$cluster)
+
+km2 = kmeans(merge_data_orange_sum,5)
+plotcluster(merge_data_orange_sum, km2$cluster)
+```
+# NbClust
+
+According to the majority rule, the best number of clusters is  3 and at second place it's 5, as we can see in the graphs below:
+
+```{r echo=FALSE, fig.cap = "Cluster plot to with 5 optimum clusters", warning=FALSE, message=FALSE, fig.width=7, fig.height=4}
+fviz_nbclust(res_kmeans_automatic, ggtheme = theme_minimal())
+
+fviz_cluster(km1, data = merge_data_orange_sum,
+             geom = "point",
+             ellipse.type = "convex", 
+             ggtheme = theme_bw()
+             )
+fviz_cluster(km2, data = merge_data_orange_sum,
+             geom = "point",
+             ellipse.type = "convex", 
+             ggtheme = theme_bw()
+             )
+
+```
+After looking at the graphs we can say that most optimum number of cluster will be 3 for this data.
+
+```{r include=FALSE}
+set.seed(123)
+
+# function to compute average silhouette for k clusters
+avg_sil <- function(k) {
+  km.res <- kmeans(merge_data_orange_sum, centers = k, nstart = 25)
+  ss <- silhouette(km.res$cluster, dist(merge_data_orange_sum))
+  mean(ss[, 3])
+}
+
+# Compute and plot wss for k = 2 to k = 15
+k.values <- 2:15
+
+# extract avg silhouette for 2-15 clusters
+avg_sil_values <- map_dbl(k.values, avg_sil)
+
+
+```
+
+```{r include=FALSE}
+plot(k.values, avg_sil_values,
+       type = "b", pch = 19, frame = FALSE,
+       xlab = "Number of clusters K",
+       ylab = "Average Silhouettes")
+```
+
+
+```{r include=FALSE}
+set.seed(123)
+km5 = kmeans(merge_data_orange_sum,7)
+
+plotcluster(merge_data_orange_sum, km5$cluster)
+
+
+
+km8 = kmeans(merge_data_orange_sum,3)
+
+plotcluster(merge_data_orange_sum, km8$cluster)
+
+
+```
+
+
+```{r include=FALSE}
+fviz_cluster(km5, data = merge_data_orange_sum,
+             geom = "point",
+             ellipse.type = "convex",
+             ggtheme = theme_bw()
+             )
+fviz_cluster(km8, data = merge_data_orange_sum,
+             geom = "point",
+             ellipse.type = "convex",
+             ggtheme = theme_bw()
+             )
+
+```
+
+
+```{r include=FALSE}
+set.seed(123)
+res_dist <- dist(merge_data_orange_sum, method = "euclidean") # method: "euclidean", "manhattan", "minkowski", etc.
+
+# Linkage
+res_hc <- hclust(d = res_dist, method = "ward.D2") # method: "single", "complete", "average", "centroid"
+
+```
+
+```{r include=FALSE}
+Dendogram
+fviz_dend(res_hc, cex = 0.5)
+```
+
+
+```{r include=FALSE}
+set.seed(123)
+res_hc_automatic <- merge_data_orange_sum %>%
+  NbClust(distance = "euclidean", # NOTE: this needs to be the same metric as the one specified for res_dist object
+          min.nc = 2, max.nc = 10,
+          method = "ward.D2", # NOTE: this needs to be the same metric as the one specified for res_hc object
+          index ="all")
+```
+
+```{r include=FALSE}
+fviz_nbclust(res_hc_automatic, ggtheme = theme_minimal())
+```
+
+
+```{r include=FALSE}
+set.seed(123)
+##run knn function
+merge_data_orange_df  <- as.data.frame(merge_data_orange_sum)
+dft <- merge_data_orange_df
+train_test = sample(1:nrow(dft), 0.7*nrow(dft))
+
+
+# train data
+new_data_train = dft[train_test,]
+new_data_train = new_data_train[complete.cases(new_data_train),]
+train_cluster = km1$cluster[train_test]
+train_cluster = unname(train_cluster)
+
+train_cluster_df = data.frame(train_cluster)
+
+# test data
+new_data_test = dft[-train_test,]
+new_data_test = new_data_test[complete.cases(new_data_test),]
+test_cluster = km1$cluster[-train_test]
+test_cluster = unname(test_cluster)
+
+test_cluster_df = data.frame(test_cluster)
+
+# combining columns
+data_train = cbind(new_data_train,train_cluster_df )
+data_test = cbind(new_data_test,test_cluster_df)
+
+# knn predictions
+pr <- knn(data_train[,c(2,3)],new_data_test[,c(2,3)],cl=data_train$train_cluster,k=25)
+table(pr,test_cluster)
+
+
+```
+
+
+```{r include=FALSE}
+cm <- confusionMatrix(as.factor(pr),as.factor(test_cluster))
+cm
+
+cm$table
+```
+
+# Conclusion
+
+Clustered of stars according to their shape, flux and distance, the optimum number of kmeans cluster using NbClust method is 3 or 5, 3 being the most preferred with the most votes of 6+ 
+
+In 5 number of clusters we have anamolies with one star not belonging to any cluster and forming a 5th cluster of it's own, while in 3 number of cluster there are no anamolies found.
+
+After we tried KNN it also gave 3 as optimum number of cluster with an accuracy of 59.28% which was highest, giving more evidence for Kmeans reasult.
+
+# Future Work
+
+We can look at other clustering techniques:
+Hierarchical Clustering 
+Model-based clustering
+
+Including more classification models such as Random Forest or CNN
+
+We can also improve the result by isolating the light curve, modeling, Removing noise if any left after cleaning of data.
